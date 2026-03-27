@@ -20,7 +20,7 @@ Extracts all saved WiFi passwords from Windows 10/11 using the native WLAN API. 
 
 - Calls `WlanEnumInterfaces` / `WlanGetProfile` directly
 - Hidden console, self-deleting, no trace
-- Exfiltrates to Telegram bot
+- Exfiltrates to Telegram bot or Discord webhook
 - Reports: hostname, username, public + private IP
 - ~5 second runtime
 
@@ -56,10 +56,11 @@ Threaded ARP scan (50 parallel threads) for speed.
 
 ### Screenshot Grabber (`badusb/screen/`)
 
-Captures a screenshot of the primary monitor and exfiltrates it. Uses GDI (`BitBlt`, `CreateCompatibleDC`). No PowerShell.
+Captures a PNG screenshot of **all monitors** (entire virtual desktop). Uses GDI for capture + GDI+ flat API for PNG encoding. No PowerShell.
 
-- Captures full primary monitor as BMP
-- Reports: hostname, username, public IP, screen resolution
+- Multi-monitor support — captures the full virtual desktop
+- PNG output (much smaller than BMP)
+- Reports: hostname, username, public IP, total resolution, monitor count
 - Hidden console, self-deleting
 - ~5 second runtime
 
